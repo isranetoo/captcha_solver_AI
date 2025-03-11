@@ -277,7 +277,7 @@ def generate_synthetic_captchas(output_dir, num_samples=1000):
 model = CaptchaSolver(num_chars=captcha_length, num_classes=len(dataset.characters))
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, factor=0.5, verbose=True)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, factor=0.5)
 
 # Early stopping parameters
 best_val_loss = float('inf')
@@ -353,6 +353,10 @@ for epoch in range(num_epochs):
     
     # Update learning rate scheduler
     scheduler.step(avg_val_loss)
+    
+    # Manually print learning rate information
+    current_lr = optimizer.param_groups[0]['lr']
+    print(f'Current learning rate: {current_lr}')
     
     # Check for overfitting
     overfitting_msg = ""
