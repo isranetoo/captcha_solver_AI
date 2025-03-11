@@ -10,6 +10,8 @@ from sklearn.model_selection import train_test_split
 import torch.nn.functional as F
 import random
 from PIL import Image
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 # Definição do dataset personalizado
 class CaptchaDataset(Dataset):
@@ -59,9 +61,12 @@ class CaptchaDataset(Dataset):
         label = [self.char_to_index[c] for c in label_text]
 
         if self.transform:
-            # Convert to PIL image for torchvision transforms
-            pil_img = Image.fromarray((img * 255).astype(np.uint8))
-            img_tensor = self.transform(pil_img)
+            # Convert to 3-channel image for Albumentations
+            img = cv2.cvtColor((img * 255).astype(np.uint8), cv2.COLOR_GRAY2RGB)
+            img_tensor = self.transform(image=img)['image']
+
+        # Ensure the tensor is of type float
+        img_tensor = img_tensor.float()
 
         return img_tensor, torch.tensor(label, dtype=torch.long)
 
@@ -90,14 +95,20 @@ if not os.path.exists(data_dir):
         # Create a minimal directory structure for testing
         os.makedirs(data_dir, exist_ok=True)
 
-# Data Augmentation - Add transforms for better generalization
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.RandomRotation(10),  # Rotação de até 10 graus
-    transforms.RandomPerspective(distortion_scale=0.2, p=0.5),  # Distorção
-    transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),  # Translação
-    transforms.ColorJitter(brightness=0.2, contrast=0.2),  # Variações de brilho e contraste
+# Data Augmentation - Add transforms for better generalization using Albumentations
+transform = A.Compose([
+    A.Rotate(limit=5, p=0.5),
+    A.RandomBrightnessContrast(p=0.3),
+    A.GaussNoise(var_limit=(5.0, 30.0), p=0.3),
+    A.ToGray(p=0.2),
+    ToTensorV2()
 ])
+
+def augment_image(image_path):
+    image = cv2.imread(image_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    augmented = transform(image=image)['image']
+    return augmented
 
 captcha_length = 4
 dataset = CaptchaDataset(data_dir, transform=transform, captcha_length=captcha_length)
@@ -134,7 +145,7 @@ class CaptchaSolver(nn.Module):
         
         # Enhanced Convolutional feature extraction
         self.conv_layers = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),  # Change input channels to 3
             nn.BatchNorm2d(32),  # Added BatchNorm for better training stability
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -159,7 +170,7 @@ class CaptchaSolver(nn.Module):
         )
         
         # Calculate the output size after convolutions and flattening
-        self.conv_output_size = self._get_conv_output_size((1, 50, 100))
+        self.conv_output_size = self._get_conv_output_size((3, 50, 100))  # Change input channels to 3
         
         # Multiple heads for each character position with increased dropout
         self.char_predictors = nn.ModuleList([
