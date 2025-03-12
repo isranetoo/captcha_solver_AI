@@ -601,3 +601,17 @@ except Exception as e:
                 print("Failed to predict from sample image as well.")
     else:
         print("No images available in the dataset.")
+
+
+# Load the best model for inference
+model = CaptchaCNN(num_chars=captcha_length, num_classes=len(dataset.characters))
+model.load_state_dict(torch.load("captcha_model_best.pth"))
+model.eval()  # Put the model in inference mode
+
+# 1 Current learning rate: 0.00099457306005925 - Epoch 51/200, Train Loss: 1.4715, Val Loss: 2.0174
+# 2 Current learning rate: 0.0009945905703327997 - Epoch 50/200, Train Loss: 1.4336, Val Loss: 2.0981
+# 3 Current learning rate: 0.0009955098353140793 - Epoch 55/200, Train Loss: 1.1162, Val Loss: 2.1506 - Confidence levels: [0.8694484  0.40374452 0.8962363  0.99837035]
+# 4 Current learning rate: 0.0009945846661997136 - Epoch 49/200, Train Loss: 1.0776, Val Loss: 2.1302 - Confidence levels: [0.8051482  0.93898934 0.99938834 0.9999938 ]
+# 5 Current learning rate: 0.000995571370241678 - Epoch 55/200, Train Loss: 0.9578, Val Loss: 2.1199 - Confidence levels: [0.7097624  0.16772194 0.68861985 0.98235714]
+# 6 Current learning rate: 0.0009941718021780543 -
+# 7
