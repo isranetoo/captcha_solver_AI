@@ -45,11 +45,11 @@ class CaptchaDataset(Dataset):
         label_text = ''.join([c for c in label_text if c in self.characters])  # Filter invalid characters
         
         # Load and process image
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+        img = cv2.imread(img_path, cv2.IMREAD_COLOR)
         img = cv2.resize(img, (100, 50)) / 255.0
 
         # Convert to tensor with proper shape [channels, height, width]
-        img_tensor = torch.FloatTensor(img).unsqueeze(0)  # Add channel dimension at position 0
+        img_tensor = torch.FloatTensor(img).permute(2, 0, 1)  # Change to [channels, height, width]
         
         # Pad or truncate label to fixed length
         if len(label_text) > self.captcha_length:
@@ -61,9 +61,8 @@ class CaptchaDataset(Dataset):
         label = [self.char_to_index[c] for c in label_text]
 
         if self.transform:
-            # Convert to 3-channel image for Albumentations
-            img = cv2.cvtColor((img * 255).astype(np.uint8), cv2.COLOR_GRAY2RGB)
-            img_tensor = self.transform(image=img)['image']
+            # Remove second color conversion and pass the 3-channel image to Albumentations
+            img_tensor = self.transform(image=(img * 255).astype(np.uint8))['image']
 
         # Ensure the tensor is of type float
         img_tensor = img_tensor.float()
@@ -97,10 +96,12 @@ if not os.path.exists(data_dir):
 
 # Data Augmentation - Add transforms for better generalization using Albumentations
 transform = A.Compose([
-    A.Rotate(limit=5, p=0.5),
-    A.RandomBrightnessContrast(p=0.3),
-    A.GaussNoise(var_limit=(5.0, 30.0), p=0.3),
-    A.ToGray(p=0.2),
+    A.Rotate(limit=10, p=0.7),  # Increased rotation limit and probability
+    A.RandomBrightnessContrast(p=0.5),  # Increased probability
+    A.GaussNoise(var_limit=(10.0, 50.0), p=0.5),  # Corrected argument
+    A.ToGray(p=0.3),  # Increased probability
+    A.GridDistortion(p=0.3),  # Added grid distortion
+    A.ElasticTransform(p=0.3),  # Added elastic transform
     ToTensorV2()
 ])
 
@@ -255,6 +256,35 @@ class CRNN(nn.Module):
         char_outputs = [predictor(features) for predictor in self.char_predictors]
         return torch.stack(char_outputs, dim=1)
 
+# Alternative ResNet18 Model
+from torchvision.models import resnet18, ResNet18_Weights
+
+class ResNetCaptchaSolver(nn.Module):
+    def __init__(self, num_chars=4, num_classes=36):
+        super(ResNetCaptchaSolver, self).__init__()
+        self.num_chars = num_chars
+        self.num_classes = num_classes
+        
+        # Load pre-trained ResNet18 model
+        self.resnet = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+        self.resnet.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.resnet.fc = nn.Identity()  # Remove the final fully connected layer
+        
+        # Multiple heads for each character position
+        self.char_predictors = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(512, 256),
+                nn.ReLU(),
+                nn.Dropout(0.4),  # Increased dropout rate
+                nn.Linear(256, num_classes)
+            ) for _ in range(num_chars)
+        ])
+
+    def forward(self, x):
+        features = self.resnet(x)
+        outputs = [predictor(features) for predictor in self.char_predictors]
+        return torch.stack(outputs, dim=1)
+
 # Function to generate synthetic CAPTCHAs
 def generate_synthetic_captchas(output_dir, num_samples=1000):
     try:
@@ -284,18 +314,18 @@ def generate_synthetic_captchas(output_dir, num_samples=1000):
 # generate_synthetic_captchas(synthetic_dir, num_samples=5000)
 
 # Treinando o modelo
-# Use model = CRNN(num_chars=captcha_length, num_classes=len(dataset.characters)) for CRNN model instead
-model = CaptchaSolver(num_chars=captcha_length, num_classes=len(dataset.characters))
+# Use model = ResNetCaptchaSolver(num_chars=captcha_length, num_classes=len(dataset.characters)) for ResNet18 model instead
+model = ResNetCaptchaSolver(num_chars=captcha_length, num_classes=len(dataset.characters))
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, factor=0.5)
+optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)  # Adjusted learning rate
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=2, factor=0.5)  # Adjusted patience
 
 # Early stopping parameters
 best_val_loss = float('inf')
 patience = 10
 early_stop_counter = 0
 
-num_epochs = 150  # Increased number of epochs
+num_epochs = 200  # Increased number of epochs
 for epoch in range(num_epochs):
     # Training loop
     model.train()
@@ -460,12 +490,12 @@ for pos in range(captcha_length):
 def predict_captcha(model, img_path, char_map):
     try:
         # Process image
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+        img = cv2.imread(img_path, cv2.IMREAD_COLOR)
         if img is None:
             raise ValueError(f"Failed to load image: {img_path}")
             
         img = cv2.resize(img, (100, 50)) / 255.0
-        img_tensor = torch.FloatTensor(img).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+        img_tensor = torch.FloatTensor(img).permute(2, 0, 1).unsqueeze(0)  # Add batch and channel dimensions
         
         # Get predictions
         with torch.no_grad():
