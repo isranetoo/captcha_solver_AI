@@ -352,9 +352,22 @@ def generate_synthetic_captchas(output_dir, num_samples=1000):
 # Treinando o modelo
 # Use model = ResNetCaptchaSolver(num_chars=captcha_length, num_classes=len(dataset.characters)) for ResNet18 model instead
 model = CaptchaCNN(num_chars=captcha_length, num_classes=len(dataset.characters))
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)  # Adjusted learning rate
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=2, factor=0.5)  # Adjusted patience
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.ce_loss = nn.CrossEntropyLoss()
+    def forward(self, inputs, targets):
+        ce_loss = self.ce_loss(inputs, targets)
+        pt = torch.exp(-ce_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+        return focal_loss.mean()
+
+criterion = FocalLoss(alpha=1, gamma=2)
+optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50)
 
 # Early stopping parameters
 best_val_loss = float('inf')
