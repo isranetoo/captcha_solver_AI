@@ -285,6 +285,42 @@ class ResNetCaptchaSolver(nn.Module):
         outputs = [predictor(features) for predictor in self.char_predictors]
         return torch.stack(outputs, dim=1)
 
+class CaptchaCNN(nn.Module):
+    def __init__(self, num_chars=4, num_classes=36):
+        super(CaptchaCNN, self).__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(32),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(128),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(256),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+        )
+        self.fc = nn.Sequential(
+            nn.Linear(256 * 3 * 6, 1024),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(1024, num_chars * num_classes)
+        )
+        self.num_chars = num_chars
+        self.num_classes = num_classes
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x.view(x.size(0), self.num_chars, self.num_classes)
+
 # Function to generate synthetic CAPTCHAs
 def generate_synthetic_captchas(output_dir, num_samples=1000):
     try:
@@ -315,7 +351,7 @@ def generate_synthetic_captchas(output_dir, num_samples=1000):
 
 # Treinando o modelo
 # Use model = ResNetCaptchaSolver(num_chars=captcha_length, num_classes=len(dataset.characters)) for ResNet18 model instead
-model = ResNetCaptchaSolver(num_chars=captcha_length, num_classes=len(dataset.characters))
+model = CaptchaCNN(num_chars=captcha_length, num_classes=len(dataset.characters))
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)  # Adjusted learning rate
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=2, factor=0.5)  # Adjusted patience
